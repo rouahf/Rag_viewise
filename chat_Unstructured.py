@@ -17,10 +17,27 @@ from langchain.document_loaders import UnstructuredURLLoader
 class VectorStoreManager:
     def __init__(self):
         self.vector_store_folder = None
+        self.id_file = "last_index_id.json"
+
+    def _get_next_id(self):
+        # Lire le dernier ID utilisé depuis le fichier
+        if os.path.exists(self.id_file):
+            with open(self.id_file, "r") as f:
+                data = json.load(f)
+                last_id = data.get("last_id", 0)
+        else:
+            last_id = 0
+
+        # Déterminer le prochain ID et mettre à jour le fichier
+        next_id = last_id + 1
+        with open(self.id_file, "w") as f:
+            json.dump({"last_id": next_id}, f)
+
+        return next_id
 
     def create_vector_store(self, text_chunks):
-        unique_id = str(uuid.uuid4())
-        self.vector_store_folder = f"faiss_index_{unique_id}"
+        next_id = self._get_next_id()
+        self.vector_store_folder = f"faiss_index_{next_id}"
         os.makedirs(self.vector_store_folder, exist_ok=True)
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
