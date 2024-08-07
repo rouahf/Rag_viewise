@@ -123,9 +123,16 @@ class ChatbotApp:
         st.set_page_config("Chat with Files")
         st.header("Chat with Files and URLs using Gemini")
 
-        if 'conversation' not in st.session_state:
-            st.session_state.conversation = []
-            st.session_state.custom_data = {}
+        if 'session_id' not in st.session_state:
+            st.session_state.session_id = str(uuid.uuid4())
+        session_id = st.session_state.session_id
+
+        if 'conversations' not in st.session_state:
+            st.session_state.conversations = {}
+        if session_id not in st.session_state.conversations:
+            st.session_state.conversations[session_id] = {'conversation': [], 'custom_data': {}}
+
+        session_data = st.session_state.conversations[session_id]
 
         with st.sidebar:
             st.title("Configuration:")
@@ -154,16 +161,17 @@ class ChatbotApp:
 
         user_question = st.text_input("Ask a Question")
         if user_question:
-            self.handle_user_input(user_question)
+            self.handle_user_input(user_question, session_id)
 
-        self.display_conversation()
+        self.display_conversation(session_id)
 
     def process_files_and_url(self):
         with st.spinner("Processing..."):
             text_chunks = self.embedding_manager.process_files_and_url(self.uploaded_files, self.url)
             if text_chunks:
                 vector_store_folder = self.vector_store_manager.create_vector_store(text_chunks)
-                st.session_state.vector_store_folder = vector_store_folder
+                session_id = st.session_state.session_id
+                st.session_state.conversations[session_id]['vector_store_folder'] = vector_store_folder
 
                 # Process and store custom data as general context
                 if self.custom_data_input:
@@ -173,7 +181,7 @@ class ChatbotApp:
                         if ':' in entry:
                             key, value = entry.split(':', 1)
                             custom_data_dict[key.strip()] = value.strip()
-                    st.session_state.custom_data = custom_data_dict
+                    st.session_state.conversations[session_id]['custom_data'] = custom_data_dict
 
                 st.success("Processing completed successfully!")
             else:
@@ -199,16 +207,16 @@ class ChatbotApp:
         chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
         return chain
 
-    def handle_user_input(self, user_question):
-        if 'vector_store_folder' not in st.session_state:
+    def handle_user_input(self, user_question, session_id):
+        if 'vector_store_folder' not in st.session_state.conversations.get(session_id, {}):
             st.error("Please upload and process files or URLs first.")
             return
 
-        vector_store_folder = st.session_state.vector_store_folder
+        vector_store_folder = st.session_state.conversations[session_id]['vector_store_folder']
         new_db = self.vector_store_manager.load_vector_store(vector_store_folder)
         docs = new_db.similarity_search(user_question)
 
-        custom_data = st.session_state.custom_data if st.session_state.custom_data else {}
+        custom_data = st.session_state.conversations[session_id]['custom_data'] if st.session_state.conversations[session_id]['custom_data'] else {}
 
         # First check custom data for a direct answer
         answer = custom_data.get(user_question, None)
@@ -220,11 +228,12 @@ class ChatbotApp:
             response = chain({"input_documents": docs, "question": user_question, "custom_data": json.dumps(custom_data)})
             answer = response.get("output_text", "Je n'ai pas la réponse à cette question.")
 
-        st.session_state.conversation.append({"question": user_question, "answer": answer})
+        st.session_state.conversations[session_id]['conversation'].append({"question": user_question, "answer": answer})
 
-    def display_conversation(self):
+    def display_conversation(self, session_id):
         st.subheader("Conversation History")
-        for i, convo in enumerate(st.session_state.conversation):
+        conversation = st.session_state.conversations.get(session_id, {}).get('conversation', [])
+        for i, convo in enumerate(conversation):
             cols = st.columns(2)
             with cols[0]:
                 st.write(f"**Question {i+1}:** {convo['question']}")
